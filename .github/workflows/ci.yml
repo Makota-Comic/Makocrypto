@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make CC=${{ matrix.compiler }}
+
+      - name: Run test suite
+        run: make test CC=${{ matrix.compiler }}
+
+      - name: Build tools
+        run: make tools CC=${{ matrix.compiler }}
+
+      - name: Run quick randomness check
+        run: ./build/bin/randomness_check
+
+      - name: Run S-Box DDT/LAT analysis
+        run: ./build/bin/sbox_analysis
+
+      - name: Run per-round avalanche measurement
+        run: ./build/bin/avalanche_per_round
+
+      - name: Run key schedule analysis
+        run: ./build/bin/keyschedule_analysis
+
+      - name: Run known-plaintext simulation
+        run: ./build/bin/known_plaintext_sim
+
+      - name: Sanitizer build
+        run: make debug CC=${{ matrix.compiler }}
+
+      - name: Run tests under sanitizers
+        run: |
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Wpedantic -g -O0 \
+            -fsanitize=address,undefined -Iinclude -Isrc \
+            tests/test_correctness.c -Lbuild/lib -lmakocrypto -lm \
+            -fsanitize=address,undefined -o /tmp/test_correctness_san
+          ${{ matrix.compiler }} -std=c11 -Wall -Wextra -Wpedantic -g -O0 \
+            -fsanitize=address,undefined -Iinclude -Isrc \
+            tests/test_gf256_tables.c -Lbuild/lib -lmakocrypto -lm \
+            -fsanitize=address,undefined -o /tmp/test_gf256_tables_san
+          /tmp/test_correctness_san
+          /tmp/test_gf256_tables_san

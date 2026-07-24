@@ -1,0 +1,13 @@
+build/
+*.o
+*.a
+*.out
+
+nist_input_*.bin
+
+*.mako
+
+.vscode/
+.idea/
+*.swp
+compile_commands.json
