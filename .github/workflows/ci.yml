@@ -40,6 +40,22 @@ jobs:
       - name: Run known-plaintext simulation
         run: ./build/bin/known_plaintext_sim
 
+      - name: Run differential trail search
+        run: ./build/bin/differential_trail_search
+
+      - name: Run impossible differential search
+        run: ./build/bin/impossible_differential_search
+
+      - name: Run integral attack test
+        run: ./build/bin/integral_attack_test
+
+      # timing_sidechannel_test is intentionally NOT run in CI: GitHub
+      # Actions runners are shared/virtualized, which produces the same
+      # kind of scheduling noise that made this project's own development
+      # sandbox unsuitable for timing measurements (see docs/SECURITY.md
+      # and docs/TESTING.md). Running it here would risk a misleading
+      # "no signal found" result being mistaken for a real safety check.
+
       - name: Sanitizer build
         run: make debug CC=${{ matrix.compiler }}
 

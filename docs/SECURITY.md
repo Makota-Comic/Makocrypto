@@ -209,6 +209,158 @@ notably, none of this constitutes an actual key-recovery attack attempt,
 which is a substantially larger undertaking than a distinguishing or
 correlation test).
 
+### Differential trail search
+
+`tools/differential_trail_search.c` runs a Matsui-style branch-and-bound
+search for the highest-probability differential trail through a reduced
+number of rounds (up to 4, using the exhaustive per-difference best DDT
+probability from the S-Box analysis above to prune branches), then
+extrapolates to the full 16 rounds using the standard wide-trail argument.
+Measured reduced-round results (128-bit key structure, byte-level model):
+
+| Rounds | Best trail probability (log2) |
+|--------|-------------------------------|
+| 1      | 2^-6 (single active S-box)     |
+| 2      | 2^-30                          |
+| 3      | 2^-126                         |
+| 4      | 2^-222                         |
+
+Extrapolating via the wide-trail bound (this MixColumns matrix has branch
+number 5, identical to AES's, guaranteeing at least 5 active S-boxes per
+2 consecutive rounds once any byte differs; combined with the S-Box's own
+measured best single-round probability of 4/256): the full 16 rounds give
+a minimum of `floor(16/2) * 5 = 40` active S-boxes, bounding any 16-round
+differential characteristic's probability at or below `2^-240`. This is
+far below both `2^-128` (128-bit brute-force search) and `2^-256`
+(256-bit), meaning no differential characteristic spanning all 16 rounds
+can be more efficient than brute-force key search.
+
+**Important methodological caveat, disclosed rather than glossed over**:
+this search assumes each active byte independently achieves its own best
+DDT probability every round. In reality, once MixColumns has linked
+specific byte difference values together, they cannot all simultaneously
+realize their individually-best DDT output on every later round -- the
+true trail probability is linked to the exact values, not just which
+bytes are active. This means the numbers above are an **upper bound** on
+the true best-trail probability, not an exact figure. This is the safe
+direction for a security argument (the true probability can only be
+lower, so a bound already below brute-force-search probability remains
+valid), but it should not be read as a precise trail-probability
+calculation, and the same shortcut would not be valid for claiming a
+trail *is* exploitable.
+
+### Impossible differential search
+
+`tools/impossible_differential_search.c` runs an automated
+miss-in-the-middle search for single-active-byte-in/single-active-byte-
+out impossible (truncated) differentials, propagating a starting pattern
+forward and a target pattern backward and checking for a provable
+contradiction (a byte position where one direction guarantees "active"
+and the other guarantees "inactive"). This is the same search form that
+found the historically significant Biham-Keller (2000) 4-round AES
+impossible differential.
+
+Measured results: for every total round count tested (2 through 10),
+splits where one side is exactly 1 round contradict for all 256 tested
+position pairs; splits where both sides are 2 or more rounds contradict
+for none of the 256 pairs. This pattern is a direct consequence of the
+truncated model's own mechanics (a 1-round side still has provably
+inactive bytes; a 2+-round side has already reached full diffusion,
+matching the round-2 avalanche convergence measured above) rather than a
+round-count-limited result the way AES's specific 4-round bound is. This
+tool's development process is itself instructive and left visible in the
+tool's own output: an earlier draft mischaracterized the imbalanced-split
+result as a coarse-model artifact before checking the published
+literature, when it is in fact the historically meaningful form -- the
+corrected reasoning, and the literature comparison behind it, is
+documented directly in the tool's printed output.
+
+What this confirms is that Makocrypto has the same *kind* of
+single-active-byte impossible differential AES does, at the same shape.
+Establishing exactly where Makocrypto's analogous limit falls (the way
+AES's is known to be 4 rounds specifically) would require modeling exact
+difference values through the 1-round side rather than only
+active/inactive status, a materially harder search not implemented here.
+The practically important question -- whether a found impossible
+differential extends, via key-guessing rounds on each side, far enough to
+threaten the *full* cipher -- was also not attempted; for reference, the
+best published impossible-differential key-recovery attacks against
+AES-128 (10 rounds) reach 7 rounds, not all 10, and Makocrypto's 16
+rounds gives more headroom by the same structural reasoning used
+throughout this document, though this is a structural comparison, not a
+computed attack-complexity figure for Makocrypto specifically.
+
+### Integral (Square) attack test
+
+`tools/integral_attack_test.c` runs the classic Square/integral test:
+encrypts a full 256-plaintext lambda set (one byte sweeping all 256
+values, others fixed) through a reduced number of real cipher rounds, and
+checks whether the XOR-sum of all 256 resulting ciphertexts is balanced
+(zero) at each byte position -- the property Square/integral attacks
+exploit for key recovery. Measured results (worst-case active byte per
+round, 128-bit key):
+
+| Rounds | Balanced byte positions | 
+|--------|--------------------------|
+| 1      | 16 / 16 (fully balanced) |
+| 2      | 16 / 16 (fully balanced) |
+| 3      | 16 / 16 (fully balanced) |
+| 4      | 0 / 16                   |
+| 5      | 0 / 16                   |
+| 6      | 0 / 16                   |
+
+The balanced property holds exactly through round 3 and disappears
+completely from round 4 onward (verified stable through round 8 in
+extended testing), matching published AES results precisely: the
+classic Square/integral property is well-documented to hold for exactly
+3 rounds of AES (unsurprising, since Square, AES's direct ancestor
+cipher, is literally named for this property and attack). Published
+integral attacks against AES-128 reach 6 of its 10 rounds at best, using
+additional key-guessing rounds layered on top of the core 3-4 round
+balanced property; Makocrypto's 16 rounds gives considerably more
+headroom by the same reasoning.
+
+This test covers only the classic single-active-byte lambda-set form, not
+higher-order integral distinguishers built from multiple active bytes
+(which the literature also uses to extend integral attacks further), and
+does not implement the key-recovery extension rounds needed to turn the
+observed balanced-property boundary into an actual attack-round count for
+Makocrypto specifically.
+
+### Timing side-channel measurement
+
+`tools/timing_sidechannel_test.c` measures whether `mako_cbc_decrypt()`'s
+padding validation loop (`src/mode_cbc.c`) -- already disclosed above as
+not constant-time in source-code terms, since it returns as soon as it
+finds the first mismatching padding byte -- produces an actually
+measurable timing difference an attacker could exploit as a
+padding-oracle side channel (Vaudenay 2002). It uses a Welch's t-test
+(the same statistical approach used in TVLA-style timing leakage
+methodology) comparing decryption time for correctly-padded ciphertext
+against padding corrupted at various depths, with `|t| > 4.5` as the
+conventional significance threshold.
+
+**This tool has deliberately not been run to produce a trusted result in
+this project's development environment.** That environment is a shared,
+virtualized sandbox with substantial scheduling noise; a smoke test
+confirmed standard deviations in the 1000+ nanosecond range against mean
+timings of only ~2000-2300 nanoseconds, i.e. noise on the same order as
+the total measurement itself, which is exactly the condition under which
+this kind of test cannot distinguish a genuine timing signal from
+environmental jitter in either direction. Reporting a "no signal found"
+result from that environment would be actively misleading, not
+reassuring, so no such result is claimed here.
+
+To get a trustworthy measurement, the tool should be run on a dedicated,
+idle physical machine (not a VM, container, or shared cloud instance),
+ideally with the process pinned to an isolated CPU core and CPU frequency
+scaling disabled, repeated across multiple runs for consistency, and
+ideally validated against a known-constant-time reference implementation
+first to confirm the methodology can detect a signal of the expected size
+at all. Full instructions are printed by the tool itself
+(`./build/bin/timing_sidechannel_test`) and are not duplicated here to
+avoid the two copies drifting out of sync.
+
 ## What has not been verified
 
 Being direct about this matters more than sounding confident:
@@ -219,28 +371,36 @@ Being direct about this matters more than sounding confident:
   it; Makocrypto has none. Structural similarity to AES's design pattern
   is a reasonable design choice, but it is not equivalent to AES's actual
   track record.
-- **No computed wide-trail security bound.** The S-Box's DDT/LAT are now
-  exhaustively measured (see above), and the per-round avalanche and
-  reduced-differential-survival measurements are direct experimental
-  evidence rather than pure analogy. What is still missing is a formal
-  wide-trail bound: a computed minimum number of active S-Boxes
-  guaranteed by the specific MixColumns matrix and ShiftRows offsets used
-  here, which would turn "the best S-Box-level differential doesn't
-  survive 16 rounds in this measurement" into "no differential
-  characteristic above probability X can exist for any N rounds,
-  provably." That computation has not been done for Makocrypto's exact
-  matrix and round count.
-- **Side-channel resistance has not been evaluated.** In particular, the
-  CBC padding validation in `mako_cbc_decrypt()` (`src/mode_cbc.c`)
-  compares padding bytes with an early-exit loop, which is not
-  constant-time. A timing side channel here could, in principle, assist a
-  padding-oracle-style attack in a scenario where an attacker can
-  repeatedly submit modified ciphertexts and observe response timing.
-  Table lookups in `mix_columns`/`inv_mix_columns` (`src/gf256.h`) are
-  also not guaranteed constant-time on all hardware, since table-lookup
-  timing can depend on cache state. Neither the KDF, the key schedule,
-  nor the core encrypt/decrypt path have been audited for timing or
-  cache-based side channels.
+- **No exact (non-bounded) wide-trail security proof.** The S-Box's
+  DDT/LAT are exhaustively measured, and `tools/differential_trail_search.c`
+  now provides a direct reduced-round (up to 4 rounds) branch-and-bound
+  search result, extrapolated to 16 rounds via the standard wide-trail
+  argument. This is meaningfully stronger evidence than pure analogy to
+  AES, but the search itself discloses an important limitation: it
+  computes an upper bound assuming each active byte independently
+  achieves its own best DDT probability every round, not the exact
+  achievable trail probability (real byte values are linked through
+  MixColumns in ways the search does not track). The bound is on the
+  safe side for a security argument (true probability can only be lower),
+  but a tight, exact computation for this specific matrix and round count
+  has not been done.
+- **Side-channel resistance has not been conclusively evaluated.**
+  `tools/timing_sidechannel_test.c` exists specifically to measure the
+  CBC padding validation's known non-constant-time behavior
+  (`mako_cbc_decrypt()` in `src/mode_cbc.c`, which returns as soon as it
+  finds the first mismatching padding byte), but has deliberately not
+  been run to produce a trusted result in this project's development
+  environment (a shared, virtualized sandbox with scheduling noise on the
+  same order as the timings being measured -- see the "Timing
+  side-channel measurement" section above for the smoke-test numbers that
+  confirm this). Whether the theoretical timing leak is practically
+  exploitable therefore remains an open question pending a measurement on
+  dedicated hardware, not a settled negative or positive result. Table
+  lookups in `mix_columns`/`inv_mix_columns` (`src/gf256.h`) are also not
+  guaranteed constant-time on all hardware, since table-lookup timing can
+  depend on cache state, and have not been measured at all. Neither the
+  KDF nor the key schedule have been audited for timing or cache-based
+  side channels.
 - **No practical related-key attack has been attempted.** The key
   schedule's slower-converging round-key words (documented above under
   "Key schedule analysis") are a measured *rate* asymmetry, not a
@@ -254,6 +414,17 @@ Being direct about this matters more than sounding confident:
   file, not attacker-chosen related keys), but would matter if this
   cipher were repurposed into a different construction (e.g. a hash
   function) that exposes the key schedule more directly.
+- **No key-recovery extension for the found impossible differential or
+  integral property.** Both `tools/impossible_differential_search.c` and
+  `tools/integral_attack_test.c` confirm Makocrypto has the same *kind*
+  of reduced-round structural property AES has (a single-active-byte
+  impossible differential of matching shape; a balanced integral property
+  through exactly 3 rounds). Neither tool implements the key-guessing
+  extension rounds that turn these reduced-round properties into an
+  actual attack against additional rounds in practice (the way published
+  attacks extend AES's core 3-4 round properties to attack 6-7 of AES-128's
+  10 rounds). Establishing an analogous attacked-round-count for
+  Makocrypto specifically has not been attempted.
 - **No authentication.** CBC mode provides confidentiality only. It does
   not detect tampering beyond the coarse padding-validity check (which is
   not a substitute for a MAC). Anyone deploying this for real data should

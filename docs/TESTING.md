@@ -28,7 +28,7 @@ Exit code is non-zero if any assertion fails.
 make tools
 ```
 
-builds three additional programs in `build/bin/`:
+builds the following analysis and utility programs in `build/bin/`:
 
 - **`benchmark`**: measures single-block and CBC bulk-encryption
   throughput for both key sizes.
@@ -58,6 +58,28 @@ builds three additional programs in `build/bin/`:
   whether similar plaintexts produce predictably similar ciphertexts, and
   whether the S-Box's best single-round differential survives through
   the full cipher.
+- **`differential_trail_search`**: Matsui-style branch-and-bound search
+  for the best-probability differential trail through a configurable
+  number of reduced rounds (default 4), extrapolated to the full 16
+  rounds via the wide-trail bound. Takes an optional round-count argument,
+  e.g. `./build/bin/differential_trail_search 5` to search deeper (cost
+  grows quickly with round count).
+- **`impossible_differential_search`**: automated miss-in-the-middle
+  search for single-active-byte impossible (truncated) differentials
+  across a range of forward/backward round splits, reporting how many of
+  the 256 possible starting/ending byte positions produce a provable
+  contradiction at each split. Takes an optional max-total-rounds
+  argument (default 8).
+- **`integral_attack_test`**: classic Square/integral test -- encrypts a
+  256-plaintext lambda set through a reduced number of real cipher rounds
+  and checks whether the XOR-sum of all resulting ciphertexts is balanced
+  (zero) at each byte position, for each of the 16 possible active-byte
+  positions. Takes an optional max-rounds argument (default 6).
+- **`timing_sidechannel_test`**: measures whether the CBC padding
+  validation's known non-constant-time behavior produces a statistically
+  significant timing difference (Welch's t-test), for use on dedicated
+  hardware -- **do not trust results from a shared or virtualized
+  environment**; the tool prints detailed guidance on this.
 
 Run any of them directly, e.g.:
 
@@ -66,13 +88,48 @@ Run any of them directly, e.g.:
 ./build/bin/avalanche_per_round
 ./build/bin/keyschedule_analysis
 ./build/bin/known_plaintext_sim
+./build/bin/differential_trail_search
+./build/bin/impossible_differential_search
+./build/bin/integral_attack_test
 ```
 
-All four are self-contained (no external input files needed) and print a
-human-readable assessment alongside the raw numbers. See
+All of the above are self-contained (no external input files needed) and
+print a human-readable assessment alongside the raw numbers. See
 [docs/SECURITY.md](SECURITY.md) for the currently measured results and
 what they imply, including the honestly-disclosed key-schedule asymmetry
-`keyschedule_analysis` surfaces.
+`keyschedule_analysis` surfaces and the corrected literature comparison
+`impossible_differential_search` documents in its own output.
+
+`timing_sidechannel_test` is deliberately not included in the list above
+to run casually: see "A note on the timing side-channel tool" below
+before running it.
+
+## A note on the timing side-channel tool
+
+`timing_sidechannel_test` measures whether `mako_cbc_decrypt()`'s padding
+validation loop leaks timing information that could assist a
+padding-oracle attack. Unlike the other tools, its result is only as good
+as the environment it runs in:
+
+```sh
+./build/bin/timing_sidechannel_test
+```
+
+This will run to completion in any environment, but the numbers it
+produces are **only trustworthy on dedicated, idle physical hardware**.
+In a shared or virtualized environment (a cloud VM, a container, a
+sandbox with other processes competing for the CPU), OS scheduling
+jitter alone typically produces timing noise larger than the actual
+signal this tool looks for, in either direction -- a "no signal found"
+result from such an environment is not evidence the code is safe, and an
+apparent "signal found" result could just as easily be noise. The tool
+prints a warning to this effect and, at the end of its own output, the
+specific steps for a trustworthy run (dedicated machine, isolated CPU
+core via `taskset`, disabled CPU frequency scaling, multiple repeated
+runs, and ideally validation against a known-constant-time reference
+implementation first). See [docs/SECURITY.md](SECURITY.md#timing-side-channel-measurement)
+for why this project's own development environment was not suitable for
+this measurement.
 
 ## Running the NIST Statistical Test Suite (SP 800-22)
 
@@ -146,6 +203,13 @@ echo "exit code: $?"   # should be non-zero
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs `make test` and `make tools` on every push
-and pull request, so regressions in correctness or avalanche behavior are
-caught automatically.
+`.github/workflows/ci.yml` runs `make test`, `make tools`, and the
+deterministic cryptanalysis tools (`randomness_check`, `sbox_analysis`,
+`avalanche_per_round`, `keyschedule_analysis`, `known_plaintext_sim`,
+`differential_trail_search`, `impossible_differential_search`,
+`integral_attack_test`) on every push and pull request, across both GCC
+and Clang, so regressions in correctness, avalanche behavior, or the
+cryptanalytic properties documented in [SECURITY.md](SECURITY.md) are
+caught automatically. `timing_sidechannel_test` is intentionally excluded
+from CI since GitHub Actions runners are shared/virtualized environments
+with the same noise problem documented above.
