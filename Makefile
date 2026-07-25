@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O2 -Iinclude -Isrc
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -O3 -Iinclude -Isrc
 LDFLAGS :=
 
 BUILD_DIR := build
