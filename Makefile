@@ -7,7 +7,7 @@ LIB_DIR := $(BUILD_DIR)/lib
 OBJ_DIR := $(BUILD_DIR)/obj
 BIN_DIR := $(BUILD_DIR)/bin
 
-LIB_SOURCES := src/cipher.c src/keyschedule.c src/mode_cbc.c src/random.c src/kdf.c
+LIB_SOURCES := src/cipher.c src/keyschedule.c src/mode_cbc.c src/mode_gcm.c src/random.c src/kdf.c
 LIB_OBJECTS := $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(LIB_SOURCES))
 STATIC_LIB := $(LIB_DIR)/libmakocrypto.a
 

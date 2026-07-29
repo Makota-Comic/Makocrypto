@@ -36,25 +36,35 @@ static mako_status_t read_urandom_fallback(uint8_t *buf, size_t len) {
     return MAKO_OK;
 }
 
-mako_status_t mako_generate_iv(uint8_t iv[MAKO_IV_SIZE]) {
-    if (iv == NULL) {
+mako_status_t mako_random_bytes(uint8_t *buf, size_t len) {
+    if (buf == NULL && len > 0) {
         return MAKO_ERR_INVALID_ARG;
+    }
+    if (len == 0) {
+        return MAKO_OK;
     }
 
 #if defined(MAKO_HAVE_GETRANDOM)
     size_t total = 0;
-    while (total < MAKO_IV_SIZE) {
-        ssize_t n = getrandom(iv + total, MAKO_IV_SIZE - total, 0);
+    while (total < len) {
+        ssize_t n = getrandom(buf + total, len - total, 0);
         if (n < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            return read_urandom_fallback(iv, MAKO_IV_SIZE);
+            return read_urandom_fallback(buf, len);
         }
         total += (size_t)n;
     }
     return MAKO_OK;
 #else
-    return read_urandom_fallback(iv, MAKO_IV_SIZE);
+    return read_urandom_fallback(buf, len);
 #endif
+}
+
+mako_status_t mako_generate_iv(uint8_t iv[MAKO_IV_SIZE]) {
+    if (iv == NULL) {
+        return MAKO_ERR_INVALID_ARG;
+    }
+    return mako_random_bytes(iv, MAKO_IV_SIZE);
 }

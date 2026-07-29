@@ -40,7 +40,7 @@ mako_status_t mako_key_init(const uint8_t *key, mako_key_size_t key_size,
     }
 
     /*
-     * Key expansion follows the Rijndael-style schedule: every key_words-th
+     * Key expansion follows the Rijndael-style schedule. every key_words-th
      * word is derived from the previous word via RotWord + SubBytes + Rcon,
      * with an extra SubWord applied at the schedule's midpoint for
      * 256-bit keys. This nonlinear mixing at expansion time is what

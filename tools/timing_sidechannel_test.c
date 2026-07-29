@@ -29,6 +29,17 @@
  * used to determine correct padding bytes one at a time -- the classic
  * padding-oracle attack (Vaudenay 2002).
  *
+ * CURRENT STATUS: as of format version 2, the `makocrypto` CLI (see
+ * src/main.c) only ever calls mako_cbc_decrypt() when reading a
+ * pre-existing version-1 file for backward compatibility; new
+ * encryption always uses mako_gcm_encrypt() (src/mode_gcm.c), whose
+ * authentication tag comparison is constant-time by construction (see
+ * the constant_time_equal() comment in that file) and has no equivalent
+ * timing side channel. This tool therefore now serves as a regression
+ * guard on mako_cbc_decrypt()'s known, disclosed limitation for the
+ * legacy read path, rather than describing an exploitable channel in
+ * new-file encryption or decryption.
+ *
  * IMPORTANT ENVIRONMENT CAVEAT: this tool was developed in a shared,
  * virtualized sandbox with substantial and variable scheduling noise
  * from unrelated processes. Timing measurements at the nanosecond-to-
