@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build
-        run: make CC=${{ matrix.compiler }}
+        run: make release CC=${{ matrix.compiler }}
 
       - name: Run test suite
         run: make test CC=${{ matrix.compiler }}
